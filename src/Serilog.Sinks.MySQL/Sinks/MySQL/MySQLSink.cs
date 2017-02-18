@@ -20,15 +20,17 @@ namespace Serilog.Sinks.MySQL
 		private readonly string tableName;
 		private readonly IFormatProvider formatProvider;
 		private readonly bool storeTimestampInUtc;
+		private readonly List<ColumnConfig> aditionalColumns;
 
 		public MySQLSink(string connectionString, string tableName, int batchSizeLimit, TimeSpan period, IFormatProvider formatProvider,
-			bool storeTimestampInUtc, bool autoCreateSqlTable)
+			bool storeTimestampInUtc, bool autoCreateSqlTable, List<ColumnConfig> aditionalColumns)
 			: base(batchSizeLimit, period)
 		{
 			this.connectionString = connectionString;
 			this.tableName = tableName;
 			this.formatProvider = formatProvider;
 			this.storeTimestampInUtc = storeTimestampInUtc;
+			this.aditionalColumns = aditionalColumns;
 
 			if (autoCreateSqlTable)
 				CreateTable();
@@ -36,25 +38,67 @@ namespace Serilog.Sinks.MySQL
 
 		private void CreateTable()
 		{
-			string sql = $@"CREATE TABLE IF NOT EXISTS {tableName} (
-  Id         INTEGER NOT NULL AUTO_INCREMENT,
-  Timestamp  DATETIME,
-  Level      VARCHAR(20),
-  Exception  TEXT,
-  Message    TEXT,
-  Properties JSON,
-
-  PRIMARY KEY (Id)
-);";
-
 			using (var connection = new MySqlConnection(connectionString))
 			{
 				connection.Open();
 
-				using (var command = new MySqlCommand(sql, connection))
+				string propertiesType;
+
+				if (GetVersion(connection) >= new Version(5, 7, 8))
+					propertiesType = "JSON";
+				else
+					propertiesType = "TEST";
+
+				var sql = new StringBuilder();
+				sql.Append("CREATE TABLE IF NOT EXISTS ")
+						.Append(tableName)
+						.Append(@" (");
+
+				sql.Append("Id INTEGER NOT NULL AUTO_INCREMENT, ");
+				sql.Append("Timestamp DATETIME NOT NULL, ");
+				sql.Append("Level VARCHAR(20) NOT NULL, ");
+				sql.Append("Message TEXT,");
+				sql.Append("Exception TEXT, ");
+
+				foreach (ColumnConfig col in aditionalColumns)
+					sql.Append(col.Name)
+							.Append(" ")
+							.Append(col.Type)
+							.Append(", ");
+
+				sql.Append("Properties ")
+						.Append(propertiesType)
+						.Append(", ");
+
+				sql.Append("PRIMARY KEY (Id)");
+				sql.Append(");");
+
+				using (var command = new MySqlCommand(sql.ToString(), connection))
 				{
 					command.ExecuteNonQuery();
 				}
+			}
+		}
+
+		private static Version GetVersion(MySqlConnection connection)
+		{
+			using (var command = new MySqlCommand("SHOW VARIABLES LIKE \"version\"", connection))
+			using (MySqlDataReader reader = command.ExecuteReader())
+			{
+				if (!reader.Read())
+					return new Version();
+
+				string value = (reader[1] ?? "").ToString();
+
+				int pos = value.IndexOf('-');
+				if (pos >= 0)
+					value = value.Substring(0, pos);
+
+				Version version;
+				if (!Version.TryParse(value, out version))
+					return new Version();
+
+				return version;
 			}
 		}
 
@@ -68,7 +112,13 @@ namespace Serilog.Sinks.MySQL
 				using (var command = new MySqlCommand())
 				{
 					var sql = new StringBuilder();
-					sql.Append($"insert into {tableName}(Timestamp, Level, Exception, Message, Properties)\nvalues ");
+					sql.Append("insert into ")
+							.Append(tableName)
+							.Append("(Timestamp, Level, Exception, Message, Properties");
+					foreach (ColumnConfig col in aditionalColumns)
+						sql.Append(", ")
+								.Append(col.Name);
+					sql.Append(")\nvalues ");
 
 					var i = 0;
 					foreach (LogEvent logEvent in events)
@@ -77,14 +127,20 @@ namespace Serilog.Sinks.MySQL
 							sql.Append(",\n");
 
 						// The param names are meaningless to keep the string smaller
-						sql.Append($"(@a{i}, @b{i}, @c{i}, @d{i}, @e{i})");
+						sql.Append($"(@{i}1, @{i}2, @{i}3, @{i}4, @{i}5");
+						for (var j = 0; j < aditionalColumns.Count; j++)
+							sql.Append($", @{i}{j + 6}");
+						sql.Append(")");
 
-						command.Parameters.AddWithValue($"a{i}",
+						command.Parameters.AddWithValue($"{i}1",
 							storeTimestampInUtc ? logEvent.Timestamp.DateTime.ToUniversalTime() : logEvent.Timestamp.DateTime);
-						command.Parameters.AddWithValue($"b{i}", logEvent.Level.ToString());
-						command.Parameters.AddWithValue($"c{i}", logEvent.Exception != null ? logEvent.Exception.ToString() : "");
-						command.Parameters.AddWithValue($"d{i}", logEvent.RenderMessage(formatProvider));
-						command.Parameters.AddWithValue($"e{i}", ToJson(logEvent.Properties));
+						command.Parameters.AddWithValue($"{i}2", logEvent.Level.ToString());
+						command.Parameters.AddWithValue($"{i}3", logEvent.Exception != null ? logEvent.Exception.ToString() : "");
+						command.Parameters.AddWithValue($"{i}4", logEvent.RenderMessage(formatProvider));
+						command.Parameters.AddWithValue($"{i}5", ToJson(logEvent.Properties));
+
+						for (var j = 0; j < aditionalColumns.Count; j++)
+							command.Parameters.AddWithValue($"{i}{j + 6}", GetProperty(logEvent.Properties, aditionalColumns[j].Property));
 
 						++i;
 					}
@@ -97,12 +153,35 @@ namespace Serilog.Sinks.MySQL
 			}
 		}
 
+		private object GetProperty(IReadOnlyDictionary<string, LogEventPropertyValue> properties, string name)
+		{
+			LogEventPropertyValue value;
+			if (!properties.TryGetValue(name, out value))
+				return null;
+
+			var scalar = value as ScalarValue;
+			if (scalar != null)
+			{
+				return scalar.Value;
+			}
+			else
+			{
+				using (var result = new StringWriter())
+				{
+					var formater = new JsonValueFormatter();
+					formater.Format(value, result);
+
+					return result.ToString();
+				}
+			}
+		}
+
 		private string ToJson(IReadOnlyDictionary<string, LogEventPropertyValue> properties)
 		{
 			if (properties.Count < 1)
 				return "";
 
-			var formater = new JsonValueFormatter(typeTagName: "$type");
+			var formater = new JsonValueFormatter();
 
 			using (var result = new StringWriter())
 			{
@@ -125,5 +204,12 @@ namespace Serilog.Sinks.MySQL
 				return result.ToString();
 			}
 		}
+	}
+
+	public class ColumnConfig
+	{
+		public string Name;
+		public string Type;
+		public string Property;
 	}
 }

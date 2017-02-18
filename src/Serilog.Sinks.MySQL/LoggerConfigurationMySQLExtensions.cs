@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Configuration;
 using Serilog.Configuration;
 using Serilog.Debugging;
@@ -9,11 +10,10 @@ namespace Serilog
 {
 	public static class LoggerConfigurationMySQLExtensions
 	{
-		public static LoggerConfiguration MySQL(this LoggerSinkConfiguration loggerConfiguration,
-			string nameOrConnectionString, string tableName = MySQLSink.DefaultTableName,
-			LogEventLevel restrictedToMinimumLevel = LevelAlias.Minimum,
-			int batchPostingLimit = MySQLSink.DefaultBatchPostingLimit, TimeSpan? period = null,
-			IFormatProvider formatProvider = null, bool storeTimestampInUtc = false, bool autoCreateSqlTable = false)
+		public static LoggerConfiguration MySQL(this LoggerSinkConfiguration loggerConfiguration, string nameOrConnectionString,
+			string tableName = MySQLSink.DefaultTableName, LogEventLevel restrictedToMinimumLevel = LevelAlias.Minimum,
+			int batchPostingLimit = MySQLSink.DefaultBatchPostingLimit, TimeSpan? period = null, IFormatProvider formatProvider = null,
+			bool storeTimestampInUtc = false, bool autoCreateSqlTable = false, Action<MySQLColumnsConfig> aditionalColumns = null)
 		{
 			if (loggerConfiguration == null)
 				throw new ArgumentNullException(nameof(loggerConfiguration));
@@ -25,10 +25,14 @@ namespace Serilog
 			string connectionString = GetConnectionString(nameOrConnectionString);
 			TimeSpan defaultedPeriod = period ?? MySQLSink.DefaultPeriod;
 
+			var cols = new MySQLColumnsConfig();
+			if (aditionalColumns != null)
+				aditionalColumns(cols);
+
 			return
 					loggerConfiguration.Sink(
-						new MySQLSink(connectionString, tableName, batchPostingLimit, defaultedPeriod, formatProvider, storeTimestampInUtc,
-							autoCreateSqlTable), restrictedToMinimumLevel);
+						new MySQLSink(connectionString, tableName, batchPostingLimit, defaultedPeriod, formatProvider, storeTimestampInUtc, autoCreateSqlTable,
+							cols.CreateColumns()), restrictedToMinimumLevel);
 		}
 
 		private static string GetConnectionString(string nameOrConnectionString)
@@ -47,6 +51,36 @@ namespace Serilog
 			}
 
 			return nameOrConnectionString;
+		}
+	}
+
+	public class MySQLColumnsConfig
+	{
+		private readonly List<ColumnConfig> cols = new List<ColumnConfig>();
+
+		public MySQLColumnsConfig AddColumnForProperty(string property, string type = null, string columnName = null)
+		{
+			if (string.IsNullOrWhiteSpace(property))
+				throw new ArgumentNullException(nameof(property));
+
+			if (string.IsNullOrWhiteSpace(type))
+				type = "TEXT";
+			if (string.IsNullOrWhiteSpace(columnName))
+				columnName = property;
+
+			cols.Add(new ColumnConfig
+			{
+				Name = columnName,
+				Type = type,
+				Property = property
+			});
+
+			return this;
+		}
+
+		internal List<ColumnConfig> CreateColumns()
+		{
+			return cols;
 		}
 	}
 }
