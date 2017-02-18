@@ -1,0 +1,33 @@
+﻿{
+  "version": "0.1.0-*",
+
+  "description": "A Serilog sink that writes events to MySQL",
+  "authors": [
+    "Ricardo Pescuma Domenecci"
+  ],
+  "packOptions": {
+    "projectUrl": "https://github.com/pescuma/serilog-sinks-mysql",
+    "licenseUrl": "http://www.apache.org/licenses/LICENSE-2.0",
+    "iconUrl": "http://serilog.net/images/serilog-sink-nuget.png",
+    "tags": [
+      "serilog",
+      "sinks",
+      "mysql"
+    ]
+  },
+
+  "dependencies": {
+    "MySql.Data": "6.9.9",
+    "Serilog": "2.0.0",
+    "Serilog.Sinks.PeriodicBatching": "2.0.0"
+  },
+
+  "frameworks": {
+    "net4.5": {
+      "frameworkAssemblies": {
+        "System.Data": "",
+        "System.Configuration": ""
+      }
+    }
+  }
+}
