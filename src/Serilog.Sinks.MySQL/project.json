@@ -1,4 +1,4 @@
-﻿{
+{
   "version": "0.1.0-*",
 
   "description": "A Serilog sink that writes events to MySQL",
@@ -18,8 +18,8 @@
 
   "dependencies": {
     "MySql.Data": "6.9.9",
-    "Serilog": "2.0.0",
-    "Serilog.Sinks.PeriodicBatching": "2.0.0"
+    "Serilog": "2.4.0",
+    "Serilog.Sinks.PeriodicBatching": "2.1.0"
   },
 
   "frameworks": {

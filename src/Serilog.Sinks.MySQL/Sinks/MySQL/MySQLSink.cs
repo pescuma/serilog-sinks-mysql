@@ -47,7 +47,7 @@ namespace Serilog.Sinks.MySQL
 				if (GetVersion(connection) >= new Version(5, 7, 8))
 					propertiesType = "JSON";
 				else
-					propertiesType = "TEST";
+					propertiesType = "TEXT";
 
 				var sql = new StringBuilder();
 				sql.Append("CREATE TABLE IF NOT EXISTS ")
@@ -127,20 +127,20 @@ namespace Serilog.Sinks.MySQL
 							sql.Append(",\n");
 
 						// The param names are meaningless to keep the string smaller
-						sql.Append($"(@{i}1, @{i}2, @{i}3, @{i}4, @{i}5");
+						sql.Append($"(@{i}_1, @{i}_2, @{i}_3, @{i}_4, @{i}_5");
 						for (var j = 0; j < aditionalColumns.Count; j++)
-							sql.Append($", @{i}{j + 6}");
+							sql.Append($", @{i}_{j + 6}");
 						sql.Append(")");
 
-						command.Parameters.AddWithValue($"{i}1",
+						command.Parameters.AddWithValue($"{i}_1",
 							storeTimestampInUtc ? logEvent.Timestamp.DateTime.ToUniversalTime() : logEvent.Timestamp.DateTime);
-						command.Parameters.AddWithValue($"{i}2", logEvent.Level.ToString());
-						command.Parameters.AddWithValue($"{i}3", logEvent.Exception != null ? logEvent.Exception.ToString() : "");
-						command.Parameters.AddWithValue($"{i}4", logEvent.RenderMessage(formatProvider));
-						command.Parameters.AddWithValue($"{i}5", ToJson(logEvent.Properties));
+						command.Parameters.AddWithValue($"{i}_2", logEvent.Level.ToString());
+						command.Parameters.AddWithValue($"{i}_3", logEvent.Exception != null ? logEvent.Exception.ToString() : "");
+						command.Parameters.AddWithValue($"{i}_4", logEvent.RenderMessage(formatProvider));
+						command.Parameters.AddWithValue($"{i}_5", ToJson(logEvent.Properties));
 
 						for (var j = 0; j < aditionalColumns.Count; j++)
-							command.Parameters.AddWithValue($"{i}{j + 6}", GetProperty(logEvent.Properties, aditionalColumns[j].Property));
+							command.Parameters.AddWithValue($"{i}_{j + 6}", GetProperty(logEvent.Properties, aditionalColumns[j].Property));
 
 						++i;
 					}
